@@ -6,23 +6,37 @@ import (
 	"os"
 )
 
-type RequestMessage struct {
-	RequestID int32       `json:"requestId"`
-	Type      string      `json:"type"`
-	Data      interface{} `json:"data"`
+type Request struct {
+	Type     string `json:"type"`
+	FileName string `json:"fileName,omitempty"`
 }
 
-type TagsResponseMessage struct {
-	RequestID int32  `json:"requestId"`
-	TODO      string `json:"todo"`
+type CodeAnalysis struct {
+	Functions []FunctionAnalysis `json:"functions"`
+}
+
+type FunctionAnalysis struct {
+	FuncName string    `json:"funcName"`
+	Struct   string    `json:"struct"`
+	Lineages []Lineage `json:"lineages"`
+}
+
+type Lineage struct {
+	Lineage string `json:"lineage"`
+	Link    Link   `json:"link"`
+}
+
+type Link struct {
+	FileName string `json:"fileName"`
+	Line     int    `json:"line"`
 }
 
 func main() {
 	// Receive JSON from stdin
 	decoder := json.NewDecoder(os.Stdin)
 	for {
-		var requestMsg RequestMessage
-		if err := decoder.Decode(&requestMsg); err != nil {
+		var request Request
+		if err := decoder.Decode(&request); err != nil {
 			// Handle error
 			fmt.Printf("%s", err.Error())
 			os.Exit(1)
@@ -32,11 +46,23 @@ func main() {
 
 		// Send response via stdout
 		encoder := json.NewEncoder(os.Stdout)
-		responseMsg := TagsResponseMessage{
-			RequestID: requestMsg.RequestID,
-			TODO:      "",
+		response := CodeAnalysis{
+			Functions: []FunctionAnalysis{
+				{
+					FuncName: "recordVersionMetric",
+					Lineages: []Lineage{
+						{
+							Lineage: "8",
+							Link: Link{
+								FileName: "cmd/impression/impression.go",
+								Line:     72,
+							},
+						},
+					},
+				},
+			},
 		}
-		if err := encoder.Encode(responseMsg); err != nil {
+		if err := encoder.Encode(response); err != nil {
 			// Handle error
 			fmt.Printf("%s", err.Error())
 			os.Exit(1)
