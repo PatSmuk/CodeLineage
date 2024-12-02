@@ -52,7 +52,7 @@ func main() {
 					FuncName: "recordVersionMetric",
 					Lineages: []Lineage{
 						{
-							Lineage: "8",
+							Lineage: "8.4.3",
 							Link: Link{
 								FileName: "cmd/impression/impression.go",
 								Line:     72,
