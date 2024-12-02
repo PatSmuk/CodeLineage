@@ -18,6 +18,17 @@
 				"kind": "build",
 				"isDefault": true
 			}
+		},
+		{
+			"type": "shell",
+			"command": "go build",
+			"label": "Build server",
+			"problemMatcher": [
+				"$go"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/server/cmd/codelineage-server"
+			}
 		}
 	]
 }
