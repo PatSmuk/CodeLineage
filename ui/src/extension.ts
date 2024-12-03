@@ -27,6 +27,22 @@ function nodeToKey(item: RecursiveCallHierarchyItem) {
 let rootPath: string = "";
 global.DOMParser = new JSDOM().window.DOMParser;
 
+// Flag to track processing state
+let isProcessing = false;
+let statusBarItem: vscode.StatusBarItem | null = null;
+
+function setProcessingState(state: boolean) {
+  isProcessing = state;
+  if (statusBarItem) {
+    if (state) {
+      statusBarItem.text = "Processing..."; // Set status bar text to indicate processing
+      statusBarItem.show();
+    } else {
+      statusBarItem.text = "Idle"; // Reset to Idle when processing ends
+      statusBarItem.show();
+    }
+  }
+}
 // Function to generate Graphviz DOT representation
 function generateGraphvizDOT(root: RecursiveCallHierarchyItem): string {
   const edges = new Set<string>();
@@ -66,6 +82,9 @@ let lspClient: LspClient | null = null;
 const graphvizMap = new Map<string, string>();
 
 export async function activate(context: vscode.ExtensionContext) {
+  // Create a status bar item to show processing state
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+  context.subscriptions.push(statusBarItem);
   let disposable = vscode.commands.registerCommand(
     "codelineage.analyzeGoCode",
     () => {}
@@ -163,7 +182,7 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
 
     console.log("provideCodeLenses called with " + document.uri.toString());
     const startTime = new Date();
-
+    setProcessingState(true)
     const results = (await lspClient.documentSymbol({
       textDocument: {
         uri: document.uri.toString(),
@@ -324,7 +343,7 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
         }
       }
     }
-
+    setProcessingState(false)
     return codeLenses;
   }
 }
