@@ -1,5 +1,10 @@
 import { spawn } from "child_process";
-import * as lspClient from "ts-lsp-client";
+import {
+  JSONRPCEndpoint,
+  LspClient,
+  SymbolInformation,
+  SymbolKind,
+} from "./ts-lsp-client";
 
 const lspProcess = spawn("gopls", {
   shell: true,
@@ -7,11 +12,8 @@ const lspProcess = spawn("gopls", {
 });
 const killLsp = () => void lspProcess.kill();
 
-const endpoint = new lspClient.JSONRPCEndpoint(
-  lspProcess.stdin,
-  lspProcess.stdout
-);
-const client = new lspClient.LspClient(endpoint);
+const endpoint = new JSONRPCEndpoint(lspProcess.stdin, lspProcess.stdout);
+const client = new LspClient(endpoint);
 
 (async () => {
   const initializeResponse = await client.initialize({
@@ -38,16 +40,24 @@ const client = new lspClient.LspClient(endpoint);
 
   await client.initialized();
 
-  const referencesResult = await client.references({
+  const results = (await client.documentSymbol({
     textDocument: {
       uri: "file:///Users/pat.smuk/Code/gitlab.indexexchange.com/exchange-node/impression/cmd/impression/impression.go",
     },
-    position: { line: 97, character: 14 },
-    context: { includeDeclaration: false },
-  });
+  })) as SymbolInformation[] | null;
 
-  console.log("references result:");
-  console.log(JSON.stringify(referencesResult, null, 2));
+  console.log("document symbol results:");
+  console.log(JSON.stringify(results, null, 2));
+
+  if (!results) {
+    await client.shutdown();
+    return;
+  }
+
+  for (const { location, name, kind } of results) {
+    if (kind === SymbolKind.Function) {
+    }
+  }
 
   await client.shutdown();
 })().then(killLsp, killLsp);

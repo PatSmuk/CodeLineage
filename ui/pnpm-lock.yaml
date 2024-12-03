@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      json-rpc-2.0:
+        specifier: ^1.7.0
+        version: 1.7.0
       ts-lsp-client:
         specifier: ^1.0.3
         version: 1.0.3
