@@ -1,6 +1,8 @@
 import { once } from "events";
 import { JSONRPCEndpoint } from "./jsonRpcEndpoint";
 import {
+  CallHierarchyIncomingCall,
+  CallHierarchyIncomingCallsParams,
   CallHierarchyItem,
   CallHierarchyPrepareParams,
   DeclarationParams,
@@ -107,5 +109,11 @@ export class LspClient {
     params: CallHierarchyPrepareParams
   ): PromiseLike<CallHierarchyItem[] | null> {
     return this.endpoint.send("textDocument/prepareCallHierarchy", params);
+  }
+
+  public incomingCalls(
+    params: CallHierarchyIncomingCallsParams
+  ): PromiseLike<CallHierarchyIncomingCall[] | null> {
+    return this.endpoint.send("callHierarchy/incomingCalls", params);
   }
 }

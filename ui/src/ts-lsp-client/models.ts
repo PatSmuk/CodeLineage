@@ -3100,6 +3100,12 @@ export interface CallHierarchyPrepareParams
   extends TextDocumentPositionParams,
     WorkDoneProgressParams {}
 
+export interface CallHierarchyIncomingCallsParams
+  extends WorkDoneProgressParams,
+    PartialResultParams {
+  item: CallHierarchyItem;
+}
+
 /**
  * Represents programming constructs like functions or constructors in the context
  * of call hierarchy.
