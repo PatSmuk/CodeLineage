@@ -1,93 +1,25 @@
-import { ChildProcess, spawn } from "child_process";
-import * as path from "path";
+import { spawn } from "child_process";
 import * as vscode from "vscode";
+import {
+  CallHierarchyIncomingCall,
+  CallHierarchyItem,
+  JSONRPCEndpoint,
+  LspClient,
+  SymbolInformation,
+  SymbolKind,
+} from "./ts-lsp-client";
 
-interface Server {}
-
-interface Link {
-  fileName: string;
-  line: number;
+interface RecursiveCallHierarchyIncomingCall extends CallHierarchyIncomingCall {
+  from: RecursiveCallHierarchyItem;
 }
 
-interface Lineage {
-  lineage: string;
-  link: Link;
-}
-interface FunctionLineages {
-  funcName: string;
-  struct?: string;
-  lineages: Lineage[];
+interface RecursiveCallHierarchyItem extends CallHierarchyItem {
+  incomingCalls: RecursiveCallHierarchyIncomingCall[];
 }
 
-interface GetLineagesResponse {
-  functions: FunctionLineages[];
-}
+let lspClient: LspClient | null = null;
 
-interface Server {
-  process: ChildProcess;
-
-  getLineages(
-    fileName: string,
-    callback: (response: GetLineagesResponse) => void
-  ): void;
-}
-
-function createServer(rootPath: string): Server {
-  const process = spawn("codelineage-server", [rootPath], {
-    cwd: rootPath, // Optional: set working directory
-    shell: true,
-  });
-
-  let serverDied = false;
-  const pendingCallbacks: ((lineages: GetLineagesResponse) => void)[] = [];
-
-  // Handle stdout
-  process.stdout.on("data", (data) => {
-    try {
-      const jsonData = JSON.parse(data.toString()) as GetLineagesResponse;
-      console.log("Received:", jsonData);
-      const callback = pendingCallbacks.shift()!;
-      callback(jsonData);
-    } catch (error) {
-      console.error("Error parsing JSON:", error);
-    }
-  });
-
-  // Handle stderr
-  process.stderr.on("data", (data) => {
-    console.error(`Go process stderr: ${data}`);
-  });
-  // Handle process exit
-  process.on("close", (code) => {
-    console.log(`Go process exited with code ${code}`);
-    serverDied = true;
-  });
-
-  function getLineages(
-    fileName: string,
-    callback: (response: GetLineagesResponse) => void
-  ): void {
-    if (serverDied) {
-      return;
-    }
-    process.stdin.write(
-      JSON.stringify({
-        type: "GET_LINEAGES",
-        fileName,
-      })
-    );
-    pendingCallbacks.push(callback);
-  }
-
-  return {
-    process,
-    getLineages,
-  };
-}
-
-let rootPath = "";
-
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   let disposable = vscode.commands.registerCommand(
     "codelineage.analyzeGoCode",
     () => {}
@@ -100,13 +32,31 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.showErrorMessage("No workspace folder found");
     return;
   }
-  rootPath = workspaceFolders[0].uri.fsPath;
-  const server = createServer(rootPath);
+
+  const lspProcess = spawn("gopls", {
+    shell: true,
+    stdio: "pipe",
+  });
+
+  const endpoint = new JSONRPCEndpoint(lspProcess.stdin, lspProcess.stdout);
+  lspClient = new LspClient(endpoint);
+
+  await lspClient.initialize({
+    processId: process.pid,
+    capabilities: {},
+    clientInfo: {
+      name: "CodeLineage",
+      version: "1.0.0",
+    },
+    rootUri: workspaceFolders[0].uri.toString(),
+  });
+
+  await lspClient.initialized();
 
   // Clean up server process if extension is deactivated.
   context.subscriptions.push(
     new vscode.Disposable(() => {
-      server.process.kill();
+      lspProcess.kill();
     })
   );
 
@@ -114,101 +64,153 @@ export function activate(context: vscode.ExtensionContext) {
   const selector: vscode.DocumentSelector = { language: "go" };
   disposable = vscode.languages.registerCodeLensProvider(
     selector,
-    new LineageCodeLensProvider(server)
+    new LineageCodeLensProvider()
   );
   context.subscriptions.push(disposable);
 
   // Command to handle custom styling
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "lineage.clickLineage",
-      async (lineage: Lineage) => {
-        try {
-          // Open the file as a text document
-          const document = await vscode.workspace.openTextDocument(
-            path.join(rootPath, lineage.link.fileName)
-          );
-
-          // Show the document in the editor
-          const editor = await vscode.window.showTextDocument(document);
-
-          // Navigate to the specific line and reveal it
-          const position = new vscode.Position(lineage.link.line - 1, 0); // Line and column
-          const range = new vscode.Range(position, position);
-          editor.revealRange(range, vscode.TextEditorRevealType.AtTop);
-
-          // Optionally set the cursor at the line
-          editor.selection = new vscode.Selection(position, position);
-        } catch (error) {
-          vscode.window.showErrorMessage(`Could not open file: ${error}`);
-        }
-
-        //   const panel = vscode.window.createWebviewPanel(
-        //     "lineageDetails",
-        //     "Lineage",
-        //     vscode.ViewColumn.Beside,
-        //     {}
-        //   );
-        //   panel.webview.html = `
-        //     <style>
-        //         .lineage-box {
-        //             background-color: red;
-        //             color: white;
-        //             padding: 10px;
-        //             border-radius: 5px;
-        //             display: inline-block;
-        //         }
-        //     </style>
-        //     <div class="lineage-box">
-        //         ${lineage.lineage}
-        //     </div>
-        // `;
+      "codeLineage.showCallGraph",
+      async (node: RecursiveCallHierarchyItem) => {
+        const panel = vscode.window.createWebviewPanel(
+          "lineageDetails",
+          "Lineage",
+          vscode.ViewColumn.Beside,
+          {}
+        );
+        panel.webview.html = `
+            <style>
+                .lineage-box {
+                    background-color: red;
+                    color: white;
+                    padding: 10px;
+                    border-radius: 5px;
+                    display: inline-block;
+                }
+            </style>
+            <div class="lineage-box">
+            </div>
+        `;
       }
     )
   );
 }
 
 class LineageCodeLensProvider implements vscode.CodeLensProvider {
-  constructor(private server: Server) {}
+  constructor() {}
 
-  provideCodeLenses(
+  async provideCodeLenses(
     document: vscode.TextDocument,
     token: vscode.CancellationToken
   ): Promise<vscode.CodeLens[]> {
-    return new Promise((resolve) => {
-      this.server.getLineages(document.fileName, (response) => {
-        const codeLenses: vscode.CodeLens[] = [];
+    if (!lspClient) {
+      return [];
+    }
 
-        for (const func of response.functions) {
-          const functionRegex = new RegExp(`func\\s+(${func.funcName})\\s*\\(`);
+    const results = (await lspClient.documentSymbol({
+      textDocument: {
+        uri: document.uri.toString(),
+      },
+    })) as SymbolInformation[] | null;
 
-          for (let i = 0; i < document.lineCount; i++) {
-            const line = document.lineAt(i);
-            const match = line.text.match(functionRegex);
+    if (!results || token.isCancellationRequested) {
+      return [];
+    }
 
-            if (match) {
-              for (const lineage of func.lineages) {
-                const range = new vscode.Range(
-                  new vscode.Position(i, 0),
-                  new vscode.Position(i, line.text.length)
-                );
+    const codeLenses: vscode.CodeLens[] = [];
 
-                const codeLens = new vscode.CodeLens(range, {
-                  title: lineage.lineage,
-                  command: "lineage.clickLineage",
-                  arguments: [lineage],
-                });
+    for (const { location, kind } of results) {
+      if (token.isCancellationRequested) {
+        return [];
+      }
 
-                codeLenses.push(codeLens);
-              }
+      if (kind === SymbolKind.Function) {
+        const range = document.lineAt(location.range.start.line).range;
+
+        const prepareResult = await lspClient.prepareCallHierarchy({
+          textDocument: {
+            uri: document.uri.toString(),
+          },
+          position: {
+            line: location.range.start.line,
+            character: location.range.start.character + 5, // hack
+          },
+        });
+
+        if (!prepareResult) {
+          continue;
+        }
+
+        const rootItem = prepareResult[0];
+        const rootNode = {
+          ...rootItem,
+          incomingCalls: [],
+        } as RecursiveCallHierarchyItem;
+
+        // Recursively fetch the incoming calls and build the tree
+        const buildCallHierarchy = async (item: RecursiveCallHierarchyItem) => {
+          if (token.isCancellationRequested) {
+            return;
+          }
+
+          const incomingCallsResult = await lspClient!.incomingCalls({
+            item,
+          });
+
+          if (!incomingCallsResult) {
+            return;
+          }
+
+          for (const incomingCall of incomingCallsResult) {
+            if (incomingCall.from.uri.endsWith("_test.go")) {
+              continue;
+            }
+
+            const callNode = {
+              ...incomingCall.from,
+              incomingCalls: [],
+            } as RecursiveCallHierarchyItem;
+
+            item.incomingCalls.push({
+              from: callNode,
+              fromRanges: incomingCall.fromRanges,
+            });
+            await buildCallHierarchy(callNode); // Recurse into the next level
+          }
+        };
+
+        await buildCallHierarchy(rootNode);
+
+        // Build paths to bottom from root for code lenses
+        const stack = [{ node: rootNode, path: "" }];
+        while (stack.length > 0) {
+          const { node, path } = stack.pop()!;
+
+          if (node.incomingCalls.length === 0) {
+            codeLenses.push(
+              new vscode.CodeLens(range, {
+                title: node.name + path,
+                command: "codeLineage.showCallGraph",
+              })
+            );
+          }
+
+          for (const incomingCall of node.incomingCalls) {
+            for (const fromRange of incomingCall.fromRanges) {
+              const lineOffset =
+                fromRange.start.line - incomingCall.from.range.start.line;
+
+              stack.push({
+                node: incomingCall.from,
+                path: `.${lineOffset}${path}`,
+              });
             }
           }
         }
+      }
+    }
 
-        if (!token.isCancellationRequested) {
-          resolve(codeLenses);
-        }
-      });
-    });
+    return codeLenses;
   }
 }
