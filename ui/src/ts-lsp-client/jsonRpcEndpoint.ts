@@ -35,16 +35,7 @@ export class JSONRPCEndpoint extends EventEmitter {
 
       if (Object.prototype.hasOwnProperty.call(jsonrpc, "id")) {
         const jsonRPCResponse: JSONRPCResponse = jsonrpc as JSONRPCResponse;
-        if (jsonRPCResponse.id === this.nextId - 1) {
-          this.client.receive(jsonRPCResponse);
-        } else {
-          this.emit(
-            "error",
-            `[transform] Received id mismatch! Got ${
-              jsonRPCResponse.id
-            }, expected ${this.nextId - 1}`
-          );
-        }
+        this.client.receive(jsonRPCResponse);
       } else {
         const jsonRPCRequest: JSONRPCRequest = jsonrpc as JSONRPCRequest;
         this.emit(jsonRPCRequest.method, jsonRPCRequest.params);

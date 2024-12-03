@@ -150,19 +150,27 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 }
 
-class LineageCodeLensProvider implements vscode.CodeLensProvider {
+interface LineageCodeLens extends vscode.CodeLens {
+  startNode: RecursiveCallHierarchyItem;
+}
+
+class LineageCodeLensProvider
+  implements vscode.CodeLensProvider<LineageCodeLens>
+{
+  nodesAlreadyVisited = new Map<string, RecursiveCallHierarchyIncomingCall[]>();
+  hits = 0;
+  misses = 0;
   constructor() {}
 
   async provideCodeLenses(
     document: vscode.TextDocument,
     token: vscode.CancellationToken
-  ): Promise<vscode.CodeLens[]> {
+  ): Promise<LineageCodeLens[]> {
     if (!lspClient) {
       return [];
     }
 
     console.log("provideCodeLenses called with " + document.uri.toString());
-    const startTime = new Date();
 
     const results = (await lspClient.documentSymbol({
       textDocument: {
@@ -174,15 +182,9 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
       return [];
     }
 
-    const codeLenses: vscode.CodeLens[] = [];
-    const nodesAlreadyVisited = new Map<
-      string,
-      RecursiveCallHierarchyIncomingCall[]
-    >();
-    let hits = 0;
-    let misses = 0;
+    const codeLenses: LineageCodeLens[] = [];
 
-    for (const { location, kind, name } of results) {
+    for (const { location, kind } of results) {
       if (token.isCancellationRequested) {
         return [];
       }
@@ -209,122 +211,125 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
           ...startItem,
           incomingCalls: [],
         } as RecursiveCallHierarchyItem;
-        const startNodeKey = nodeToKey(startNode);
 
-        // Recursively fetch the incoming calls and build the tree
-        const buildCallHierarchy = async (
-          item: RecursiveCallHierarchyItem,
-          log: boolean
-        ) => {
-          if (token.isCancellationRequested) {
-            return;
-          }
-
-          const maybeIncomingCalls = nodesAlreadyVisited.get(nodeToKey(item));
-          if (maybeIncomingCalls) {
-            hits++;
-            item.incomingCalls = maybeIncomingCalls;
-            return;
-          } else {
-            misses++;
-          }
-
-          // console.log(`incomingCalls(${item.name})`);
-          const incomingCallsResult = await lspClient!.incomingCalls({
-            item,
-          });
-
-          if (!incomingCallsResult) {
-            return;
-          }
-
-          for (const incomingCall of incomingCallsResult) {
-            if (incomingCall.from.uri.endsWith("_test.go")) {
-              continue;
-            }
-
-            const callNode = {
-              ...incomingCall.from,
-              incomingCalls: [],
-            } as RecursiveCallHierarchyItem;
-
-            item.incomingCalls.push({
-              from: callNode,
-              fromRanges: incomingCall.fromRanges,
-            });
-            await buildCallHierarchy(callNode, log); // Recurse into the next level
-          }
-
-          nodesAlreadyVisited.set(nodeToKey(item), item.incomingCalls);
-        };
-
-        await buildCallHierarchy(startNode, false);
-        // console.log(
-        //   `done building "${startNodeKey}" in ${
-        //     (new Date().valueOf() - startTime.valueOf()) / 1000
-        //   }ms, ${hits} hits, ${misses} misses`
-        // );
-        hits = 0;
-        misses = 0;
-
-        // Function is not called from anywhere, skip it
-        if (startNode.incomingCalls.length === 0) {
-          continue;
-        }
-
-        // Generate Graphviz content for the function and store it in the map
-        const graphvizContent = generateGraphvizDOT(startNode);
-        graphvizMap.set(startNodeKey, graphvizContent);
-
-        // Build paths to bottom from root for code lenses
-        const codeLensesForFunction = [] as vscode.CodeLens[];
-        const stack = [{ node: startNode, path: "" }];
-        while (stack.length > 0) {
-          const { node, path } = stack.pop()!;
-
-          // If node is not called from anywhere, it's the root,
-          // turn it into a code lens
-          if (node.incomingCalls.length === 0) {
-            codeLensesForFunction.push(
-              new vscode.CodeLens(range, {
-                title: node.name + path,
-                command: "codeLineage.showCallGraph",
-                arguments: [startNodeKey],
-              })
-            );
-          }
-
-          for (const incomingCall of node.incomingCalls) {
-            for (const fromRange of incomingCall.fromRanges) {
-              const lineOffset =
-                fromRange.start.line - incomingCall.from.range.start.line;
-
-              stack.push({
-                node: incomingCall.from,
-                path: `.${lineOffset}${path}`,
-              });
-            }
-          }
-        }
-
-        if (codeLensesForFunction.length > 5) {
-          const excessCount = codeLensesForFunction.length - 5;
-          codeLensesForFunction.splice(5, excessCount);
-          codeLensesForFunction.push(
-            new vscode.CodeLens(range, {
-              title: `... and ${excessCount} more ...`,
-              command: "codeLineage.showCallGraph",
-              arguments: [startNodeKey],
-            })
-          );
-        }
-
-        for (const codeLens of codeLensesForFunction) {
-          codeLenses.push(codeLens);
-        }
+        const lens = new vscode.CodeLens(range) as LineageCodeLens;
+        lens.startNode = startNode;
+        codeLenses.push(lens);
       }
     }
 
     return codeLenses;
+  }
+
+  async resolveCodeLens(
+    codeLens: LineageCodeLens,
+    token: vscode.CancellationToken
+  ): Promise<LineageCodeLens | null> {
+    const startNode = codeLens.startNode;
+    console.log(`resolving "${codeLens.startNode.name}"`);
+    const startNodeKey = nodeToKey(startNode);
+
+    // Recursively fetch the incoming calls and build the tree
+    const buildCallHierarchy = async (
+      item: RecursiveCallHierarchyItem,
+      log: boolean
+    ) => {
+      if (token.isCancellationRequested) {
+        return;
+      }
+
+      const maybeIncomingCalls = this.nodesAlreadyVisited.get(nodeToKey(item));
+      if (maybeIncomingCalls) {
+        this.hits++;
+        item.incomingCalls = maybeIncomingCalls;
+        return;
+      } else {
+        this.misses++;
+      }
+
+      console.log(`incomingCalls(${item.name})`);
+      const incomingCallsResult = await lspClient!.incomingCalls({
+        item,
+      });
+
+      console.log("result: " + incomingCallsResult);
+      if (!incomingCallsResult) {
+        return;
+      }
+
+      for (const incomingCall of incomingCallsResult) {
+        if (incomingCall.from.uri.endsWith("_test.go")) {
+          continue;
+        }
+
+        const callNode = {
+          ...incomingCall.from,
+          incomingCalls: [],
+        } as RecursiveCallHierarchyItem;
+
+        item.incomingCalls.push({
+          from: callNode,
+          fromRanges: incomingCall.fromRanges,
+        });
+        await buildCallHierarchy(callNode, log); // Recurse into the next level
+      }
+
+      this.nodesAlreadyVisited.set(nodeToKey(item), item.incomingCalls);
+    };
+
+    await buildCallHierarchy(startNode, false);
+
+    // Function is not called from anywhere, skip it
+    if (startNode.incomingCalls.length === 0) {
+      return null;
+    }
+
+    // Generate Graphviz content for the function and store it in the map
+    const graphvizContent = generateGraphvizDOT(startNode);
+    graphvizMap.set(startNodeKey, graphvizContent);
+
+    // Build paths to bottom from root for code lenses
+    const pathsForFunction = [] as string[];
+    const stack = [{ node: startNode, path: "" }];
+    while (stack.length > 0) {
+      const { node, path } = stack.pop()!;
+
+      // If node is not called from anywhere, it's the root,
+      // turn it into a code lens
+      if (node.incomingCalls.length === 0) {
+        pathsForFunction.push(node.name + path);
+      }
+
+      for (const incomingCall of node.incomingCalls) {
+        for (const fromRange of incomingCall.fromRanges) {
+          const lineOffset =
+            fromRange.start.line - incomingCall.from.range.start.line;
+
+          stack.push({
+            node: incomingCall.from,
+            path: `.${lineOffset}${path}`,
+          });
+        }
+      }
+    }
+
+    let title = pathsForFunction.join(", ");
+    let excess = 0;
+    while (title.length > 80 && pathsForFunction.length > 1) {
+      pathsForFunction.pop();
+      excess++;
+      title = pathsForFunction.join(", ");
+    }
+    if (excess > 0) {
+      title += `, and ${excess} more`;
+    }
+
+    codeLens.command = {
+      title,
+      command: "codeLineage.showCallGraph",
+      arguments: [startNodeKey],
+    };
+
+    return codeLens;
   }
 }
