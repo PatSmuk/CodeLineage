@@ -119,6 +119,10 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     const codeLenses: vscode.CodeLens[] = [];
+    const nodesAlreadyVisited = new Map<
+      string,
+      RecursiveCallHierarchyIncomingCall[]
+    >();
 
     for (const { location, kind } of results) {
       if (token.isCancellationRequested) {
@@ -142,15 +146,22 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
           continue;
         }
 
-        const rootItem = prepareResult[0];
-        const rootNode = {
-          ...rootItem,
+        const startItem = prepareResult[0];
+        const startNode = {
+          ...startItem,
           incomingCalls: [],
         } as RecursiveCallHierarchyItem;
 
         // Recursively fetch the incoming calls and build the tree
         const buildCallHierarchy = async (item: RecursiveCallHierarchyItem) => {
           if (token.isCancellationRequested) {
+            return;
+          }
+
+          const nodeKey = `${item.uri.toString()}::${item.name}`;
+          const maybeIncomingCalls = nodesAlreadyVisited.get(nodeKey);
+          if (maybeIncomingCalls) {
+            item.incomingCalls = maybeIncomingCalls;
             return;
           }
 
@@ -178,15 +189,19 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
             });
             await buildCallHierarchy(callNode); // Recurse into the next level
           }
+
+          nodesAlreadyVisited.set(nodeKey, item.incomingCalls);
         };
 
-        await buildCallHierarchy(rootNode);
+        await buildCallHierarchy(startNode);
 
         // Build paths to bottom from root for code lenses
-        const stack = [{ node: rootNode, path: "" }];
+        const stack = [{ node: startNode, path: "" }];
         while (stack.length > 0) {
           const { node, path } = stack.pop()!;
 
+          // If node is not called from anywhere, it's the root,
+          // turn it into a code lens
           if (node.incomingCalls.length === 0) {
             codeLenses.push(
               new vscode.CodeLens(range, {
