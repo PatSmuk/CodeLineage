@@ -1,4 +1,7 @@
+import { instance } from "@viz-js/viz";
 import { spawn } from "child_process";
+import { JSDOM } from "jsdom";
+import { relative } from "path";
 import * as vscode from "vscode";
 import {
   CallHierarchyIncomingCall,
@@ -17,7 +20,50 @@ interface RecursiveCallHierarchyItem extends CallHierarchyItem {
   incomingCalls: RecursiveCallHierarchyIncomingCall[];
 }
 
+function nodeToKey(item: RecursiveCallHierarchyItem) {
+  return `${item.uri.toString()}::${item.name}`;
+}
+
+let rootPath: string = "";
+global.DOMParser = new JSDOM().window.DOMParser;
+
+// Function to generate Graphviz DOT representation
+function generateGraphvizDOT(root: RecursiveCallHierarchyItem): string {
+  const edges = new Set<string>();
+  const nodes = new Set<string>();
+
+  const relativePath = (uri: string) =>
+    relative(rootPath, decodeURIComponent(new URL(uri).pathname));
+
+  const traverse = (node: RecursiveCallHierarchyItem) => {
+    const nodeId = `${node.name}_${relativePath(node.uri)}`;
+    nodes.add(
+      `"${nodeId}" [label="${node.name}\\n(${relativePath(node.uri)})"];`
+    );
+    for (const incomingCall of node.incomingCalls) {
+      const childNodeId = `${incomingCall.from.name}_${relativePath(
+        incomingCall.from.uri
+      )}`;
+      const edge = `"${childNodeId}" -> "${nodeId}";`;
+      if (!edges.has(edge)) {
+        edges.add(edge);
+      }
+      traverse(incomingCall.from); // Recurse into children
+    }
+  };
+
+  traverse(root);
+
+  return `digraph ${root.name}CallHierarchy {
+  rankdir=TB; // Top-to-bottom layout
+  node [shape=box, fontname="Arial"];
+  ${Array.from(nodes).join("\n  ")}
+  ${Array.from(edges).join("\n  ")}
+}`;
+}
+
 let lspClient: LspClient | null = null;
+const graphvizMap = new Map<string, string>();
 
 export async function activate(context: vscode.ExtensionContext) {
   let disposable = vscode.commands.registerCommand(
@@ -32,6 +78,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showErrorMessage("No workspace folder found");
     return;
   }
+  rootPath = workspaceFolders[0].uri.fsPath;
 
   const lspProcess = spawn("gopls", {
     shell: true,
@@ -72,7 +119,14 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "codeLineage.showCallGraph",
-      async (node: RecursiveCallHierarchyItem) => {
+      async (key: string) => {
+        const dotContent = graphvizMap.get(key);
+        if (!dotContent) {
+          return;
+        }
+        const svgContent = await instance().then((viz) => {
+          return viz.renderSVGElement(dotContent);
+        });
         const panel = vscode.window.createWebviewPanel(
           "lineageDetails",
           "Lineage",
@@ -80,16 +134,8 @@ export async function activate(context: vscode.ExtensionContext) {
           {}
         );
         panel.webview.html = `
-            <style>
-                .lineage-box {
-                    background-color: red;
-                    color: white;
-                    padding: 10px;
-                    border-radius: 5px;
-                    display: inline-block;
-                }
-            </style>
             <div class="lineage-box">
+              ${svgContent.outerHTML}
             </div>
         `;
       }
@@ -151,6 +197,7 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
           ...startItem,
           incomingCalls: [],
         } as RecursiveCallHierarchyItem;
+        const startNodeKey = nodeToKey(startNode);
 
         // Recursively fetch the incoming calls and build the tree
         const buildCallHierarchy = async (item: RecursiveCallHierarchyItem) => {
@@ -158,8 +205,7 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
             return;
           }
 
-          const nodeKey = `${item.uri.toString()}::${item.name}`;
-          const maybeIncomingCalls = nodesAlreadyVisited.get(nodeKey);
+          const maybeIncomingCalls = nodesAlreadyVisited.get(startNodeKey);
           if (maybeIncomingCalls) {
             item.incomingCalls = maybeIncomingCalls;
             return;
@@ -190,12 +236,22 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
             await buildCallHierarchy(callNode); // Recurse into the next level
           }
 
-          nodesAlreadyVisited.set(nodeKey, item.incomingCalls);
+          nodesAlreadyVisited.set(startNodeKey, item.incomingCalls);
         };
 
         await buildCallHierarchy(startNode);
 
+        // Function is not called from anywhere, skip it
+        if (startNode.incomingCalls.length === 0) {
+          continue;
+        }
+
+        // Generate Graphviz content for the function and store it in the map
+        const graphvizContent = generateGraphvizDOT(startNode);
+        graphvizMap.set(startNodeKey, graphvizContent);
+
         // Build paths to bottom from root for code lenses
+        const codeLensesForFunction = [] as vscode.CodeLens[];
         const stack = [{ node: startNode, path: "" }];
         while (stack.length > 0) {
           const { node, path } = stack.pop()!;
@@ -203,10 +259,11 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
           // If node is not called from anywhere, it's the root,
           // turn it into a code lens
           if (node.incomingCalls.length === 0) {
-            codeLenses.push(
+            codeLensesForFunction.push(
               new vscode.CodeLens(range, {
                 title: node.name + path,
                 command: "codeLineage.showCallGraph",
+                arguments: [startNodeKey],
               })
             );
           }
@@ -222,6 +279,22 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
               });
             }
           }
+        }
+
+        if (codeLensesForFunction.length > 5) {
+          const excessCount = codeLensesForFunction.length - 5;
+          codeLensesForFunction.splice(5, excessCount);
+          codeLensesForFunction.push(
+            new vscode.CodeLens(range, {
+              title: `... and ${excessCount} more ...`,
+              command: "codeLineage.showCallGraph",
+              arguments: [startNodeKey],
+            })
+          );
+        }
+
+        for (const codeLens of codeLensesForFunction) {
+          codeLenses.push(codeLens);
         }
       }
     }
