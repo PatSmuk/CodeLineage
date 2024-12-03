@@ -6,6 +6,27 @@ import {
   SymbolKind,
 } from "./ts-lsp-client";
 
+// Function to represent the tree structure
+class CallTreeNode {
+  name: string;
+  children: CallTreeNode[];
+
+  constructor(name: string) {
+    this.name = name;
+    this.children = [];
+  }
+
+  addChild(child: CallTreeNode) {
+    this.children.push(child);
+  }
+
+  // Method to print the tree in a human-readable way
+  print(indent: string = "") {
+    console.log(`${indent}${this.name}`);
+    this.children.forEach((child) => child.print(indent + "  "));
+  }
+}
+
 const lspProcess = spawn("gopls", {
   shell: true,
   stdio: "pipe",
@@ -16,7 +37,7 @@ const endpoint = new JSONRPCEndpoint(lspProcess.stdin, lspProcess.stdout);
 const client = new LspClient(endpoint);
 
 const TEST_FILE_URI =
-  "file:///Users/pat.smuk/Code/gitlab.indexexchange.com/exchange-node/impression/internal/service/http.go";
+  "file:///Users/love.sharma/Desktop/WIP/billing/internal/auditlog/builder_bid.go";
 
 (async () => {
   await client.initialize({
@@ -26,21 +47,11 @@ const TEST_FILE_URI =
       name: "gopls_test",
       version: "0.0.0",
     },
-    workspaceFolders: [
-      {
-        uri: "file:///Users/pat.smuk/Code/gitlab.indexexchange.com/exchange-node/impression",
-        name: "impression",
-      },
-    ],
-    rootPath:
-      "/Users/pat.smuk/Code/gitlab.indexexchange.com/exchange-node/impression",
     rootUri:
-      "file:///Users/pat.smuk/Code/gitlab.indexexchange.com/exchange-node/impression",
+      "file:///Users/love.sharma/Desktop/WIP/billing/internal/auditlog",
   });
 
-  //console.log("initialize response:");
-  //console.log(JSON.stringify(initializeResponse, null, 2));
-
+  console.log("initialize response:");
   await client.initialized();
 
   const results = (await client.documentSymbol({
@@ -48,9 +59,6 @@ const TEST_FILE_URI =
       uri: TEST_FILE_URI,
     },
   })) as SymbolInformation[] | null;
-
-  //console.log("document symbol results:");
-  //console.log(JSON.stringify(results, null, 2));
 
   if (!results) {
     await client.shutdown();
@@ -69,47 +77,37 @@ const TEST_FILE_URI =
         },
       });
 
-      console.log("\nprepare result: ");
-      console.log(JSON.stringify(prepareResult, null, 2));
-
       if (!prepareResult) {
         continue;
       }
 
-      const item = prepareResult[0];
+      const rootItem = prepareResult[0];
+      const rootNode = new CallTreeNode(name); // Start the tree with the root function
 
-      const incomingCallsResult = await client.incomingCalls({
-        item,
-      });
-
-      console.log(`\nincoming calls result for "${name}": `);
-      console.log(JSON.stringify(incomingCallsResult, null, 2));
-
-      if (!incomingCallsResult) {
-        continue;
-      }
-
-      for (const incomingCall of incomingCallsResult) {
+      // Recursively fetch the incoming calls and build the tree
+      const buildCallHierarchy = async (item: any, parentNode: CallTreeNode) => {
         const incomingCallsResult = await client.incomingCalls({
-          item: incomingCall.from,
+          item,
         });
-        console.log(`\nrecursive result for "${incomingCall.from.name}":`);
-        console.log(JSON.stringify(incomingCallsResult, null, 2));
 
         if (!incomingCallsResult) {
-          continue;
+          return;
         }
 
         for (const incomingCall of incomingCallsResult) {
-          const incomingCallsResult = await client.incomingCalls({
-            item: incomingCall.from,
-          });
-          console.log(
-            `\neven more recursive result for "${incomingCall.from.name}":`
-          );
-          console.log(JSON.stringify(incomingCallsResult, null, 2));
+          const callNode = new CallTreeNode(incomingCall.from.name);
+          parentNode.addChild(callNode); // Add the child node
+          await buildCallHierarchy(incomingCall.from, callNode); // Recurse into the next level
         }
-      }
+      };
+
+      await buildCallHierarchy(rootItem, rootNode);
+
+      // Print the tree
+      console.log(`Call hierarchy for function "${name}":`);
+      rootNode.print();
+
+      console.log("\n-------------------------------------------");
     }
   }
 
