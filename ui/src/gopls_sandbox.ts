@@ -27,13 +27,26 @@ const endpoint = new JSONRPCEndpoint(lspProcess.stdin, lspProcess.stdout);
 const client = new LspClient(endpoint);
 const ROOT_PATH = "/Users/love.sharma/Desktop/WIP/billing/internal/auditlog";
 const TEST_FILE_URI = `file://${ROOT_PATH}/builder_bid.go`;
-// Data structure to store Graphviz representations
-const graphvizMap: Record<string, string> = {};
 
-// Function to build the call hierarchy recursively
-const buildCallHierarchy = async (item: RecursiveCallHierarchyItem, client: LspClient) => {
+// Data structures for memoization and storage
+const graphvizMap: Record<string, string> = {};
+const callHierarchyCache: Map<string, RecursiveCallHierarchyItem> = new Map();
+
+// Function to build the call hierarchy recursively with memoization
+const buildCallHierarchy = async (
+  item: RecursiveCallHierarchyItem,
+  client: LspClient
+): Promise<RecursiveCallHierarchyItem> => {
+  const nodeId = `${item.name}_${item.uri}`;
+  if (callHierarchyCache.has(nodeId)) {
+    return callHierarchyCache.get(nodeId)!; // Return cached node
+  }
+
   const incomingCallsResult = await client.incomingCalls({ item });
-  if (!incomingCallsResult) return;
+  if (!incomingCallsResult) {
+    callHierarchyCache.set(nodeId, item); // Cache even if no incoming calls
+    return item;
+  }
 
   for (const incomingCall of incomingCallsResult) {
     if (incomingCall.from.uri.endsWith("_test.go")) continue;
@@ -44,11 +57,13 @@ const buildCallHierarchy = async (item: RecursiveCallHierarchyItem, client: LspC
     } as RecursiveCallHierarchyItem;
 
     item.incomingCalls.push({
-      from: callNode,
+      from: await buildCallHierarchy(callNode, client), // Recurse and cache
       fromRanges: incomingCall.fromRanges,
     });
-    await buildCallHierarchy(callNode, client); // Recurse into children
   }
+
+  callHierarchyCache.set(nodeId, item); // Cache the processed node
+  return item;
 };
 
 // Function to generate Graphviz DOT representation
@@ -63,7 +78,9 @@ const generateGraphvizDOT = (root: RecursiveCallHierarchyItem): string => {
     const nodeId = `${node.name}_${relativePath(node.uri)}`;
     nodes.add(`"${nodeId}" [label="${node.name}\\n(${relativePath(node.uri)})"];`);
     for (const incomingCall of node.incomingCalls) {
-      const childNodeId = `${incomingCall.from.name}_${relativePath(incomingCall.from.uri)}`;
+      const childNodeId = `${incomingCall.from.name}_${relativePath(
+        incomingCall.from.uri
+      )}`;
       const edge = `"${childNodeId}" -> "${nodeId}";`;
       if (!edges.has(edge)) {
         edges.add(edge);
@@ -127,21 +144,20 @@ const generateGraphvizDOT = (root: RecursiveCallHierarchyItem): string => {
         incomingCalls: [],
       } as RecursiveCallHierarchyItem;
 
-      await buildCallHierarchy(rootNode, client);
+      await buildCallHierarchy(rootNode, client); // Build hierarchy with memoization
 
       // Generate Graphviz DOT for the function and store in map
       graphvizMap[name] = generateGraphvizDOT(rootNode);
-    
-      console.log("\n-------------------------------------------\n");
-      console.log("Graphviz representations:");
-      console.log(`Function: ${graphvizMap[name]}`);
-      console.log(graphvizMap[name]);
-      console.log("\n-------------------------------------------\n");
     }
   }
 
   await client.shutdown();
 
   console.log(`Total Graphviz Representations Created: ${Object.keys(graphvizMap).length}`);
-
+  console.log("Graphviz representations:");
+  for (const [functionName, graphviz] of Object.entries(graphvizMap)) {
+    console.log(`Function: ${functionName}`);
+    console.log(graphviz);
+    console.log("\n-------------------------------------------\n");
+  }
 })().then(killLsp, killLsp);
