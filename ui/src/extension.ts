@@ -80,10 +80,17 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   rootPath = workspaceFolders[0].uri.fsPath;
 
-  const lspProcess = spawn("gopls", {
-    shell: true,
-    stdio: "pipe",
-  });
+  const lspProcess = spawn(
+    "gopls",
+    [
+      // "-logfile=/Users/pat.smuk/Code/github.com/PatSmuk/CodeLineage/ui/gopls-trace.log",
+      // "-rpc.trace",
+    ],
+    {
+      shell: true,
+      stdio: "pipe",
+    }
+  );
 
   const endpoint = new JSONRPCEndpoint(lspProcess.stdin, lspProcess.stdout);
   lspClient = new LspClient(endpoint);
@@ -154,6 +161,9 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
       return [];
     }
 
+    console.log("provideCodeLenses called with " + document.uri.toString());
+    const startTime = new Date();
+
     const results = (await lspClient.documentSymbol({
       textDocument: {
         uri: document.uri.toString(),
@@ -169,8 +179,10 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
       string,
       RecursiveCallHierarchyIncomingCall[]
     >();
+    let hits = 0;
+    let misses = 0;
 
-    for (const { location, kind } of results) {
+    for (const { location, kind, name } of results) {
       if (token.isCancellationRequested) {
         return [];
       }
@@ -200,17 +212,24 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
         const startNodeKey = nodeToKey(startNode);
 
         // Recursively fetch the incoming calls and build the tree
-        const buildCallHierarchy = async (item: RecursiveCallHierarchyItem) => {
+        const buildCallHierarchy = async (
+          item: RecursiveCallHierarchyItem,
+          log: boolean
+        ) => {
           if (token.isCancellationRequested) {
             return;
           }
 
-          const maybeIncomingCalls = nodesAlreadyVisited.get(startNodeKey);
+          const maybeIncomingCalls = nodesAlreadyVisited.get(nodeToKey(item));
           if (maybeIncomingCalls) {
+            hits++;
             item.incomingCalls = maybeIncomingCalls;
             return;
+          } else {
+            misses++;
           }
 
+          // console.log(`incomingCalls(${item.name})`);
           const incomingCallsResult = await lspClient!.incomingCalls({
             item,
           });
@@ -233,13 +252,20 @@ class LineageCodeLensProvider implements vscode.CodeLensProvider {
               from: callNode,
               fromRanges: incomingCall.fromRanges,
             });
-            await buildCallHierarchy(callNode); // Recurse into the next level
+            await buildCallHierarchy(callNode, log); // Recurse into the next level
           }
 
-          nodesAlreadyVisited.set(startNodeKey, item.incomingCalls);
+          nodesAlreadyVisited.set(nodeToKey(item), item.incomingCalls);
         };
 
-        await buildCallHierarchy(startNode);
+        await buildCallHierarchy(startNode, false);
+        // console.log(
+        //   `done building "${startNodeKey}" in ${
+        //     (new Date().valueOf() - startTime.valueOf()) / 1000
+        //   }ms, ${hits} hits, ${misses} misses`
+        // );
+        hits = 0;
+        misses = 0;
 
         // Function is not called from anywhere, skip it
         if (startNode.incomingCalls.length === 0) {
