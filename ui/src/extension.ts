@@ -147,9 +147,8 @@ export async function activate(context: vscode.ExtensionContext) {
           async (message) => {
             console.log(message);
             if (message.type === "nodeClick") {
-              const nodeName = message.nodeName;
               const fileUri = message.uri.split(":")[0];
-              const line = parseInt(message.uri.split(":")[1] ?? 0);
+              const line = parseInt(message.uri.split(":")[1] ?? 1) - 1;
 
               try {
                 console.log("Trying to open " + fileUri);

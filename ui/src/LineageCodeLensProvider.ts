@@ -107,7 +107,7 @@ function generateGraphvizDOT(
 
   for (const [nodeId, lines] of callSiteLines.entries()) {
     const node = nodesById.get(nodeId)!;
-    const linesArray = [...lines];
+    const linesArray = [...lines].map((line) => line + 1);
     linesArray.sort((a, b) => a - b);
     let label = `${node.name}\\n(${relativePath(node.uri)}${
       linesArray.length > 0 ? ":" + linesArray : ""
