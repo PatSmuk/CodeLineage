@@ -100,7 +100,10 @@ function generateGraphvizDOT(
   };
 
   nodesById.set(`${root.name}_${relativePath(root.uri)}`, root);
-  callSiteLines.set(`${root.name}_${relativePath(root.uri)}`, new Set());
+  callSiteLines.set(
+    `${root.name}_${relativePath(root.uri)}`,
+    new Set([root.range.start.line])
+  );
   traverse(root);
 
   for (const [nodeId, lines] of callSiteLines.entries()) {
