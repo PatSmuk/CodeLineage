@@ -24,6 +24,9 @@ interface LineageCodeLens extends vscode.CodeLens {
   startNode: RecursiveCallHierarchyItem;
 }
 
+const FUNCTION_NAME_PATTERN =
+  /\s*func\s*(?:\(\s*(?:(?:[A-Za-z]|\p{Nd})+)\s*\*?\s*(?:(?:[A-Za-z]|\p{Nd})+)\s*\))?\s*((?:[A-Za-z]|\p{Nd})+)\s*\(/u;
+
 // Function to generate Graphviz DOT representation
 function generateGraphvizDOT(
   root: RecursiveCallHierarchyItem,
@@ -101,9 +104,9 @@ function generateGraphvizDOT(
     const node = nodesById.get(nodeId)!;
     const linesArray = [...lines].map((line) => line + 1);
     linesArray.sort((a, b) => a - b);
-    let label = `${node.name}\\n(${relativePath(node.uri)}${
+    let label = `${node.name}\\n${relativePath(node.uri)}${
       linesArray.length > 0 ? ":" + linesArray : ""
-    })`;
+    }`;
     nodes.add(`"${nodeId}" [label="${label}"];`);
   }
 
@@ -144,7 +147,6 @@ export class LineageCodeLensProvider
     if (!lspClient) {
       return [];
     }
-    //console.log("provideCodeLenses called with " + document.uri.toString());
 
     const results = (await lspClient.documentSymbol({
       textDocument: {
@@ -163,8 +165,13 @@ export class LineageCodeLensProvider
         return [];
       }
 
-      if (kind === SymbolKind.Function) {
-        const range = document.lineAt(location.range.start.line).range;
+      if (kind === SymbolKind.Function || kind === SymbolKind.Method) {
+        const startLine = document.lineAt(location.range.start.line);
+        const match = FUNCTION_NAME_PATTERN.exec(startLine.text);
+        if (!match) {
+          continue;
+        }
+        const functionName = match[1];
 
         const prepareResult = await lspClient.prepareCallHierarchy({
           textDocument: {
@@ -172,7 +179,7 @@ export class LineageCodeLensProvider
           },
           position: {
             line: location.range.start.line,
-            character: location.range.start.character + 5, // hack
+            character: startLine.text.indexOf(functionName),
           },
         });
 
@@ -186,7 +193,7 @@ export class LineageCodeLensProvider
           incomingCalls: [],
         } as RecursiveCallHierarchyItem;
 
-        const lens = new vscode.CodeLens(range) as LineageCodeLens;
+        const lens = new vscode.CodeLens(startLine.range) as LineageCodeLens;
         lens.startNode = startNode;
         codeLenses.push(lens);
       }
@@ -205,7 +212,6 @@ export class LineageCodeLensProvider
     }
 
     const startNode = codeLens.startNode;
-    //console.log(`resolving "${codeLens.startNode.name}"`);
     const startNodeKey = nodeToKey(startNode);
 
     // Recursively fetch the incoming calls and build the tree
@@ -232,7 +238,11 @@ export class LineageCodeLensProvider
       }
 
       for (const incomingCall of incomingCallsResult) {
-        if (incomingCall.from.uri.endsWith("_test.go")) {
+        // Ignore test code
+        if (
+          incomingCall.from.uri.endsWith("_test.go") ||
+          incomingCall.from.uri.includes("component_test")
+        ) {
           continue;
         }
 

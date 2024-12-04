@@ -162,13 +162,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
         panel.webview.onDidReceiveMessage(
           async (message) => {
-            console.log(message);
             if (message.type === "nodeClick") {
               const fileUri = message.uri.split(":")[0];
               const line = parseInt(message.uri.split(":")[1] ?? 1) - 1;
 
               try {
-                console.log("Trying to open " + fileUri);
                 const document = await vscode.workspace.openTextDocument(
                   vscode.Uri.file(fileUri)
                 );
@@ -203,10 +201,7 @@ function makeSVGClickable(
     if (textElement) {
       const nodeName = textElement.textContent || "";
 
-      const fileUri = path.join(
-        rootPath,
-        nodeName.substring(1, nodeName.length - 1)
-      );
+      const fileUri = path.join(rootPath, nodeName);
 
       // Add attributes to store the necessary data
       node.setAttribute("data-node-name", nodeName);
