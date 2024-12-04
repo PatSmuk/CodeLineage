@@ -132,7 +132,7 @@ export async function activate(context: vscode.ExtensionContext) {
               font-family: var(--vscode-editor-font-family);
             }
             svg g.node text:last-child {
-              fill: var(--vscode-editorInlayHint-parameterForeground);
+              opacity: 0.5;
             }
             svg g.edge path, svg g.edge polygon {
               stroke: var(--vscode-foreground);
