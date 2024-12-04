@@ -125,7 +125,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             svg g.node path {
               fill: var(--vscode-button-background);
-              stroke: none;
+              stroke: var(--vscode-settings-sashBorder);
             }
             svg g.node text {
               fill: var(--vscode-button-foreground);
