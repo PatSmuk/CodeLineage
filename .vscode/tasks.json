@@ -5,7 +5,7 @@
 	"tasks": [
 		{
 			"options": {
-				"cwd": "ui"
+				"cwd": "${workspaceFolder}"
 			},
 			"type": "npm",
 			"script": "watch",
@@ -17,20 +17,6 @@
 			"group": {
 				"kind": "build",
 				"isDefault": true
-			},
-			"dependsOn": [
-				"Build server"
-			]
-		},
-		{
-			"type": "shell",
-			"command": "go build",
-			"label": "Build server",
-			"problemMatcher": [
-				"$go"
-			],
-			"options": {
-				"cwd": "${workspaceFolder}/server/cmd/codelineage-server"
 			}
 		}
 	]

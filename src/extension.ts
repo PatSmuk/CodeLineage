@@ -42,17 +42,10 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(disposable);
 
-  const lspProcess = spawn(
-    "gopls",
-    [
-      // "-logfile=/Users/pat.smuk/Code/github.com/PatSmuk/CodeLineage/ui/gopls-trace.log",
-      // "-rpc.trace",
-    ],
-    {
-      shell: true,
-      stdio: "pipe",
-    }
-  );
+  const lspProcess = spawn("gopls", {
+    shell: true,
+    stdio: "pipe",
+  });
 
   const endpoint = new JSONRPCEndpoint(lspProcess.stdin, lspProcess.stdout);
   lspClient = new LspClient(endpoint);
@@ -105,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext) {
             enableScripts: true, // Enable JavaScript execution
           }
         );
-  
+
         panel.webview.html = `
           <!DOCTYPE html>
           <html lang="en">
@@ -185,18 +178,18 @@ export async function activate(context: vscode.ExtensionContext) {
               const container = document.querySelector("#svg-container");
               const svg = container.querySelector("svg");
               const svgGroup = svg.querySelector("g");
-          
+
               let scale = 1;
               let panX = 0;
               let panY = 0;
-          
+
               const updateTransform = () => {
                 svgGroup.setAttribute(
                   "transform",
                   \`translate(\${panX}, \${panY}) scale(\${scale})\`
                 );
               };
-          
+
               // Zoom In and Out
               document.getElementById("zoomIn").addEventListener("click", () => {
                 scale *= 1.2;
@@ -206,18 +199,18 @@ export async function activate(context: vscode.ExtensionContext) {
                 scale /= 1.2;
                 updateTransform();
               });
-          
+
               // Dragging functionality
               let isDragging = false;
               let startX, startY;
-          
+
               svg.addEventListener("mousedown", (e) => {
                 isDragging = true;
                 startX = e.clientX;
                 startY = e.clientY;
                 svg.style.cursor = "grabbing";
               });
-          
+
               window.addEventListener("mousemove", (e) => {
                 if (!isDragging) return;
                 const dx = e.clientX - startX;
@@ -228,12 +221,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 startY = e.clientY;
                 updateTransform();
               });
-          
+
               window.addEventListener("mouseup", () => {
                 isDragging = false;
                 svg.style.cursor = "grab";
               });
-          
+
               // Node Click Handling
               const vscode = acquireVsCodeApi();
               const nodes = svg.querySelectorAll("g[data-node-name]");
@@ -244,7 +237,7 @@ export async function activate(context: vscode.ExtensionContext) {
                   vscode.postMessage({ type: "nodeClick", nodeName, uri: fileUri });
                 });
               });
-  
+
               // Save SVG Button
               document.getElementById("save").addEventListener("click", () => {
                 const svgBlob = new Blob([svg.outerHTML], { type: "image/svg+xml" });
@@ -257,13 +250,13 @@ export async function activate(context: vscode.ExtensionContext) {
           </body>
           </html>
         `;
-  
+
         panel.webview.onDidReceiveMessage(
           async (message) => {
             if (message.type === "nodeClick") {
               const fileUri = message.uri.split(":")[0];
               const line = parseInt(message.uri.split(":")[1] ?? 1) - 1;
-  
+
               try {
                 const document = await vscode.workspace.openTextDocument(
                   vscode.Uri.file(fileUri)
@@ -285,7 +278,7 @@ export async function activate(context: vscode.ExtensionContext) {
         );
       }
     )
-  );        
+  );
 }
 
 function makeSVGClickable(
