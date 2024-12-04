@@ -234,7 +234,7 @@ export class LineageCodeLensProvider
       });
 
       if (!incomingCallsResult) {
-        return;
+        return null;
       }
 
       for (const incomingCall of incomingCallsResult) {
@@ -265,7 +265,12 @@ export class LineageCodeLensProvider
 
     // Function is not called from anywhere, skip it
     if (startNode.incomingCalls.length === 0) {
-      return null;
+      codeLens.command = {
+        title: "Not called anywhere",
+        command: "",
+      };
+
+      return codeLens;
     }
 
     // Generate Graphviz content for the function and store it in the map
