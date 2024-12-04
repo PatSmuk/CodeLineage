@@ -5,17 +5,33 @@ import * as vscode from "vscode";
 import { LineageCodeLensProvider } from "./LineageCodeLensProvider";
 import { JSONRPCEndpoint, LspClient } from "./ts-lsp-client";
 
-let rootPath: string = "";
+// Used by the viz-js to render the SVG.
 global.DOMParser = new JSDOM().window.DOMParser;
 
-let lspClient: LspClient | null = null;
+let rootPath: string = "";
 const graphvizMap = new Map<string, string>();
 
+let lspClient: LspClient | null = null;
+let analysisEnabled = true;
+const getLspClient = () => (analysisEnabled ? lspClient : null);
+
 export async function activate(context: vscode.ExtensionContext) {
-  let disposable = vscode.commands.registerCommand(
-    "codelineage.analyzeGoCode",
-    () => {}
+  const codeLensProvider = new LineageCodeLensProvider(
+    getLspClient,
+    graphvizMap,
+    rootPath
   );
+
+  let disposable = vscode.commands.registerCommand("codelineage.start", () => {
+    analysisEnabled = true;
+    codeLensProvider.notify();
+  });
+  context.subscriptions.push(disposable);
+
+  disposable = vscode.commands.registerCommand("codelineage.stop", () => {
+    analysisEnabled = false;
+    codeLensProvider.notify();
+  });
   context.subscriptions.push(disposable);
 
   // Get the root folder of the current workspace
@@ -64,7 +80,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const selector: vscode.DocumentSelector = { language: "go" };
   disposable = vscode.languages.registerCodeLensProvider(
     selector,
-    new LineageCodeLensProvider(lspClient, graphvizMap, rootPath)
+    codeLensProvider
   );
   context.subscriptions.push(disposable);
 

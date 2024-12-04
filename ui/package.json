@@ -14,8 +14,12 @@
   "contributes": {
     "commands": [
       {
-        "command": "codelineage.analyzeGoCode",
-        "title": "CodeLineage: Analyze Go Code"
+        "command": "codelineage.start",
+        "title": "CodeLineage: Start Analysis"
+      },
+      {
+        "command": "codelineage.stop",
+        "title": "CodeLineage: Stop Analysis"
       }
     ]
   },
