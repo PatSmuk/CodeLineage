@@ -30,8 +30,6 @@ function generateGraphvizDOT(
   rootPath: string
 ): string {
   const themeColors = getVSCodeColors();
-  const edges = new Set<string>();
-  const nodes = new Set<string>();
   const defaultStyles = `
       // Graph-level styling
       graph [
@@ -66,41 +64,59 @@ function generateGraphvizDOT(
       ];
   `;
 
-  const relativePath = (uri: string) =>
-    relative(rootPath, decodeURIComponent(new URL(uri).pathname));
-
-  const traverse = (
-    node: RecursiveCallHierarchyItem,
-    fromRange: RecursiveCallHierarchyIncomingCall["fromRanges"][0] | null
-  ) => {
-    let nodeId = `${node.name}_${relativePath(node.uri)}`;
-    let label = `${node.name}\\n(${relativePath(node.uri)}${
-      fromRange ? ":" + fromRange.start.line : ""
-    })`;
-    if (fromRange) {
-      nodeId += `_${fromRange.start.line}`;
-    }
-    nodes.add(`"${nodeId}" [label="${label}"];`);
-
-    for (const incomingCall of node.incomingCalls) {
-      for (const fromRange of incomingCall.fromRanges) {
-        const childNodeId = `${incomingCall.from.name}_${relativePath(
-          incomingCall.from.uri
-        )}_${fromRange.start.line}`;
-        const edge = `"${childNodeId}" -> "${nodeId}";`;
-        if (!edges.has(edge)) {
-          edges.add(edge);
-        }
-        traverse(incomingCall.from, fromRange); // Recurse into children
+  const edges = new Set<string>();
+  const nodes = new Set<string>();
+  const nodesById = new Map<String, CallHierarchyItem>();
+  const callSiteLines = new Map<string, Set<number>>();
+  const addCallSiteLines = (nodeId: string, newCallSites: number[]) => {
+    const existing = callSiteLines.get(nodeId);
+    if (!existing) {
+      callSiteLines.set(nodeId, new Set(newCallSites));
+    } else {
+      for (const site of newCallSites) {
+        existing.add(site);
       }
     }
   };
 
-  traverse(root, null);
+  const relativePath = (uri: string) =>
+    relative(rootPath, decodeURIComponent(new URL(uri).pathname));
+
+  const traverse = (node: RecursiveCallHierarchyItem) => {
+    const nodeId = `${node.name}_${relativePath(node.uri)}`;
+    for (const incomingCall of node.incomingCalls) {
+      const childNodeId = `${incomingCall.from.name}_${relativePath(
+        incomingCall.from.uri
+      )}`;
+      nodesById.set(childNodeId, incomingCall.from);
+      addCallSiteLines(
+        childNodeId,
+        incomingCall.fromRanges.map((r) => r.start.line)
+      );
+      const edge = `"${childNodeId}" -> "${nodeId}";`;
+      if (!edges.has(edge)) {
+        edges.add(edge);
+      }
+      traverse(incomingCall.from); // Recurse into children
+    }
+  };
+
+  nodesById.set(`${root.name}_${relativePath(root.uri)}`, root);
+  callSiteLines.set(`${root.name}_${relativePath(root.uri)}`, new Set());
+  traverse(root);
+
+  for (const [nodeId, lines] of callSiteLines.entries()) {
+    const node = nodesById.get(nodeId)!;
+    const linesArray = [...lines];
+    linesArray.sort((a, b) => a - b);
+    let label = `${node.name}\\n(${relativePath(node.uri)}${
+      linesArray.length > 0 ? ":" + linesArray : ""
+    })`;
+    nodes.add(`"${nodeId}" [label="${label}"];`);
+  }
 
   return `digraph ${root.name}CallHierarchy {
     rankdir=TB; // Top-to-bottom layout
-    node [shape=box, fontname="Arial"];
     ${defaultStyles}
     ${Array.from(nodes).join("\n  ")}
     ${Array.from(edges).join("\n  ")}
