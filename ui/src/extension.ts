@@ -120,6 +120,23 @@ export async function activate(context: vscode.ExtensionContext) {
               width: 100%;
               height: auto;
             }
+            svg g polygon {
+              fill: var(--vscode-editor-background);
+            }
+            svg g.node path {
+              fill: var(--vscode-button-background);
+              stroke: none;
+            }
+            svg g.node text {
+              fill: var(--vscode-button-foreground);
+              font-family: var(--vscode-editor-font-family);
+            }
+            svg g.node text:last-child {
+              fill: var(--vscode-editorInlayHint-parameterForeground);
+            }
+            svg g.edge path, svg g.edge polygon {
+              stroke: var(--vscode-foreground);
+            }
           </style>
         </head>
         <body>
