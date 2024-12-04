@@ -79,18 +79,31 @@ export class LineageCodeLensProvider
   hits = 0;
   misses = 0;
   constructor(
-    private lspClient: LspClient,
+    private getLspClient: () => LspClient | null,
     private graphvizMap: Map<string, string>,
     private rootPath: string
   ) {}
+
+  private _onDidChangeCodeLenses: vscode.EventEmitter<void> =
+    new vscode.EventEmitter<void>();
+  public readonly onDidChangeCodeLenses: vscode.Event<void> =
+    this._onDidChangeCodeLenses.event;
+
+  notify() {
+    this._onDidChangeCodeLenses.fire();
+  }
 
   async provideCodeLenses(
     document: vscode.TextDocument,
     token: vscode.CancellationToken
   ): Promise<LineageCodeLens[]> {
+    const lspClient = this.getLspClient();
+    if (!lspClient) {
+      return [];
+    }
     //console.log("provideCodeLenses called with " + document.uri.toString());
 
-    const results = (await this.lspClient.documentSymbol({
+    const results = (await lspClient.documentSymbol({
       textDocument: {
         uri: document.uri.toString(),
       },
@@ -110,7 +123,7 @@ export class LineageCodeLensProvider
       if (kind === SymbolKind.Function) {
         const range = document.lineAt(location.range.start.line).range;
 
-        const prepareResult = await this.lspClient.prepareCallHierarchy({
+        const prepareResult = await lspClient.prepareCallHierarchy({
           textDocument: {
             uri: document.uri.toString(),
           },
@@ -143,6 +156,11 @@ export class LineageCodeLensProvider
     codeLens: LineageCodeLens,
     token: vscode.CancellationToken
   ): Promise<LineageCodeLens | null> {
+    const lspClient = this.getLspClient();
+    if (!lspClient) {
+      return null;
+    }
+
     const startNode = codeLens.startNode;
     //console.log(`resolving "${codeLens.startNode.name}"`);
     const startNodeKey = nodeToKey(startNode);
@@ -162,7 +180,7 @@ export class LineageCodeLensProvider
         this.misses++;
       }
 
-      const incomingCallsResult = await this.lspClient!.incomingCalls({
+      const incomingCallsResult = await lspClient!.incomingCalls({
         item,
       });
 
@@ -249,6 +267,7 @@ export class LineageCodeLensProvider
 
     codeLens.command = {
       title,
+      tooltip: "Show call graph for this function",
       command: "codeLineage.showCallGraph",
       arguments: [startNodeKey],
     };
