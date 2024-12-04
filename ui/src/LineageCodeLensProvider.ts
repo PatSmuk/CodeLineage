@@ -25,7 +25,7 @@ interface LineageCodeLens extends vscode.CodeLens {
 }
 
 const FUNCTION_NAME_PATTERN =
-  /\s*func\s*(?:\(\s*(?:(?:[A-Za-z]|\p{Nd})+)\s*\*?\s*(?:(?:[A-Za-z]|\p{Nd})+)\s*\))?\s*((?:[A-Za-z]|\p{Nd})+)\s*\(/u;
+  /\s*func\s*(?:\(\s*(?:(?:[A-Za-z]|\p{Nd})+)?\s*\*?\s*(?:(?:[A-Za-z]|\p{Nd})+)\s*\))?\s*((?:[A-Za-z]|\p{Nd})+)\s*\(/du;
 
 // Function to generate Graphviz DOT representation
 function generateGraphvizDOT(
@@ -167,11 +167,10 @@ export class LineageCodeLensProvider
 
       if (kind === SymbolKind.Function || kind === SymbolKind.Method) {
         const startLine = document.lineAt(location.range.start.line);
-        const match = FUNCTION_NAME_PATTERN.exec(startLine.text);
+        const match = startLine.text.match(FUNCTION_NAME_PATTERN);
         if (!match) {
           continue;
         }
-        const functionName = match[1];
 
         const prepareResult = await lspClient.prepareCallHierarchy({
           textDocument: {
@@ -179,7 +178,7 @@ export class LineageCodeLensProvider
           },
           position: {
             line: location.range.start.line,
-            character: startLine.text.indexOf(functionName),
+            character: match.indices![1][0],
           },
         });
 
