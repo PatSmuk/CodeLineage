@@ -25,8 +25,8 @@ const killLsp = () => void lspProcess.kill();
 
 const endpoint = new JSONRPCEndpoint(lspProcess.stdin, lspProcess.stdout);
 const client = new LspClient(endpoint);
-const ROOT_PATH = "/Users/love.sharma/Desktop/WIP/billing/internal/auditlog";
-const TEST_FILE_URI = `file://${ROOT_PATH}/builder_bid.go`;
+const ROOT_PATH = "/Users/marco.martin/go/src/impression";
+const TEST_FILE_URI = `file://${ROOT_PATH}/cmd/impression/server/privacysandboximpressionv3_test.go`;
 
 // Data structures for memoization and storage
 const graphvizMap: Record<string, string> = {};
@@ -152,7 +152,6 @@ const generateGraphvizDOT = (root: RecursiveCallHierarchyItem): string => {
   }
 
   await client.shutdown();
-
   console.log(`Total Graphviz Representations Created: ${Object.keys(graphvizMap).length}`);
   console.log("Graphviz representations:");
   for (const [functionName, graphviz] of Object.entries(graphvizMap)) {
