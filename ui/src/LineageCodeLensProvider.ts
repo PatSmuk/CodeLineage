@@ -29,16 +29,14 @@ function generateGraphvizDOT(
   root: RecursiveCallHierarchyItem,
   rootPath: string
 ): string {
-  const themeColors = getVSCodeColors();
   const defaultStyles = `
       // Graph-level styling
       graph [
         rankdir=TB, // Top-to-bottom layout
-        bgcolor="${themeColors.background}", // Use VSCode background color
+        bgcolor=var(--vscode-editor-background);
         fontname="Arial",
         fontsize=12,
-        fontcolor="${themeColors.text}", // Use VSCode text color
-        label="${root.name}",
+        fontcolor=var(--vscode-editor-text);
         labelloc="t" // Place title at the top
       ];
 
@@ -48,14 +46,14 @@ function generateGraphvizDOT(
         style="rounded,filled",
         fontname="Verdana",
         fontsize=10,
-        fillcolor="${themeColors.accent}", // Use VSCode accent color
-        fontcolor="${themeColors.text}",
-        color="${themeColors.border}" // Use VSCode border color
+        fillcolor=var(--vscode-editor-accent);
+        fontcolor=var(--vscode-editor-text);
+        color=var(--vscode-editor-border);
       ];
 
       // Default edge styling
       edge [
-        color="${themeColors.border}", // Border color for edges
+        color=var(--vscode-editor-border);
         arrowhead=vee,
         arrowsize=0.8,
         penwidth=1.5,
@@ -325,20 +323,4 @@ export class LineageCodeLensProvider
 
     return codeLens;
   }
-}
-
-function getVSCodeColors() {
-  const theme = vscode.window.activeColorTheme;
-  const config = vscode.workspace.getConfiguration(
-    "workbench.colorCustomizations"
-  );
-
-  const colors = {
-    background: config["editor.background"] || "#1e1e1e", // Default dark background
-    text: config["editor.foreground"] || "#d4d4d4", // Default text color
-    accent: config["sideBarSectionHeader.background"] || "#007acc", // Accent color
-    border: config["activityBar.border"] || "#333333", // Border color
-  };
-
-  return { themeName: theme.kind, ...colors };
 }
