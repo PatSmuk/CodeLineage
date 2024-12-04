@@ -298,13 +298,13 @@ export class LineageCodeLensProvider
     }
 
     // Trim each path to max 5 segments.
-    pathsForFunction = pathsForFunction.map((path) => {
-      const segments = path.split(".");
-      if (segments.length <= 5) {
-        return path;
-      }
-      return segments.slice(0, 5).join(".") + "...";
-    });
+    // pathsForFunction = pathsForFunction.map((path) => {
+    //   const segments = path.split(".");
+    //   if (segments.length <= 5) {
+    //     return path;
+    //   }
+    //   return segments.slice(0, 5).join(".") + "...";
+    // });
 
     // Trim the amount of paths to fit in a reasonable amount of space.
     let title = pathsForFunction.join(", ");
