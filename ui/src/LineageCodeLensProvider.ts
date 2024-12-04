@@ -285,7 +285,7 @@ export class LineageCodeLensProvider
       if (segments.length <= 5) {
         return path;
       }
-      return segments.slice(5).join(".") + "...";
+      return segments.slice(0, 5).join(".") + "...";
     });
 
     // Trim the amount of paths to fit in a reasonable amount of space.
@@ -313,13 +313,15 @@ export class LineageCodeLensProvider
 
 function getVSCodeColors() {
   const theme = vscode.window.activeColorTheme;
-  const config = vscode.workspace.getConfiguration('workbench.colorCustomizations');
+  const config = vscode.workspace.getConfiguration(
+    "workbench.colorCustomizations"
+  );
 
   const colors = {
-    background: config['editor.background'] || '#1e1e1e', // Default dark background
-    text: config['editor.foreground'] || '#d4d4d4', // Default text color
-    accent: config['sideBarSectionHeader.background'] || '#007acc', // Accent color
-    border: config['activityBar.border'] || '#333333', // Border color
+    background: config["editor.background"] || "#1e1e1e", // Default dark background
+    text: config["editor.foreground"] || "#d4d4d4", // Default text color
+    accent: config["sideBarSectionHeader.background"] || "#007acc", // Accent color
+    border: config["activityBar.border"] || "#333333", // Border color
   };
 
   return { themeName: theme.kind, ...colors };

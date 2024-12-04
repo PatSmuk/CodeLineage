@@ -8,7 +8,6 @@ import { JSONRPCEndpoint, LspClient } from "./ts-lsp-client";
 // Used by the viz-js to render the SVG.
 global.DOMParser = new JSDOM().window.DOMParser;
 
-let rootPath: string = "";
 const graphvizMap = new Map<string, string>();
 
 let lspClient: LspClient | null = null;
@@ -16,6 +15,14 @@ let analysisEnabled = true;
 const getLspClient = () => (analysisEnabled ? lspClient : null);
 
 export async function activate(context: vscode.ExtensionContext) {
+  // Get the root folder of the current workspace
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    vscode.window.showErrorMessage("No workspace folder found");
+    return;
+  }
+  const rootPath = workspaceFolders[0].uri.fsPath;
+
   const codeLensProvider = new LineageCodeLensProvider(
     getLspClient,
     graphvizMap,
@@ -33,14 +40,6 @@ export async function activate(context: vscode.ExtensionContext) {
     codeLensProvider.notify();
   });
   context.subscriptions.push(disposable);
-
-  // Get the root folder of the current workspace
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) {
-    vscode.window.showErrorMessage("No workspace folder found");
-    return;
-  }
-  rootPath = workspaceFolders[0].uri.fsPath;
 
   const lspProcess = spawn(
     "gopls",
@@ -151,8 +150,10 @@ export async function activate(context: vscode.ExtensionContext) {
               const fileUri = message.uri;
 
               try {
-                console.log('Trying to open '+fileUri);
-                const document = await vscode.workspace.openTextDocument(vscode.Uri.file(fileUri));
+                console.log("Trying to open " + fileUri);
+                const document = await vscode.workspace.openTextDocument(
+                  vscode.Uri.file(fileUri)
+                );
                 vscode.window.showTextDocument(document, vscode.ViewColumn.One);
               } catch (error) {
                 vscode.window.showErrorMessage(`Failed to open file: ${error}`);
@@ -176,7 +177,8 @@ function makeSVGClickable(svgElement: SVGElement): SVGElement {
       const nodeName = titleElement.textContent || "";
 
       // Assuming the file URI is stored or can be derived
-      const fileUri = '/Users/marco.martin/go/src/impression/cmd/impression/server/server.go';
+      const fileUri =
+        "/Users/marco.martin/go/src/impression/cmd/impression/server/server.go";
       // const fileUri = `file://path/to/${nodeName}.go`; // Replace with actual logic
 
       // Add attributes to store the necessary data
