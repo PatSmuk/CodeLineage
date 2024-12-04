@@ -99,7 +99,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const svgContentWithLinks = makeSVGClickable(rootPath, svgContent);
         const panel = vscode.window.createWebviewPanel(
           "lineageDetails",
-          "Lineage",
+          "Lineage of " + key.split("::")[1],
           vscode.ViewColumn.Beside,
           {
             enableScripts: true, // Enable JavaScript execution
