@@ -135,10 +135,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 background-color: var(--vscode-button-hoverBackground);
                 color: var(--vscode-button-hoverForeground);
               }
+              #svg-container {
+                width: 100%;
+                height: 100%;
+              }
               svg {
-                border: 1px solid #ccc;
                 cursor: grab;
                 overflow: hidden; /* Hide scrollbars */
+                width: 100%;
+                height: 100%;
               }
               svg:active {
                 cursor: grabbing;
