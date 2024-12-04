@@ -1,6 +1,7 @@
 import { instance } from "@viz-js/viz";
 import { spawn } from "child_process";
 import { JSDOM } from "jsdom";
+import * as path from "path";
 import * as vscode from "vscode";
 import { LineageCodeLensProvider } from "./LineageCodeLensProvider";
 import { JSONRPCEndpoint, LspClient } from "./ts-lsp-client";
@@ -95,7 +96,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const svgContent = await instance().then((viz) => {
           return viz.renderSVGElement(dotContent);
         });
-        const svgContentWithLinks = makeSVGClickable(svgContent);
+        const svgContentWithLinks = makeSVGClickable(rootPath, svgContent);
         const panel = vscode.window.createWebviewPanel(
           "lineageDetails",
           "Lineage",
@@ -147,14 +148,21 @@ export async function activate(context: vscode.ExtensionContext) {
             console.log(message);
             if (message.type === "nodeClick") {
               const nodeName = message.nodeName;
-              const fileUri = message.uri;
+              const fileUri = message.uri.split(":")[0];
+              const line = parseInt(message.uri.split(":")[1] ?? 0);
 
               try {
                 console.log("Trying to open " + fileUri);
                 const document = await vscode.workspace.openTextDocument(
                   vscode.Uri.file(fileUri)
                 );
-                vscode.window.showTextDocument(document, vscode.ViewColumn.One);
+                const editor = await vscode.window.showTextDocument(
+                  document,
+                  vscode.ViewColumn.One
+                );
+                const pos = new vscode.Position(line, 0);
+                editor.selections = [new vscode.Selection(pos, pos)];
+                editor.revealRange(new vscode.Range(pos, pos));
               } catch (error) {
                 vscode.window.showErrorMessage(`Failed to open file: ${error}`);
               }
@@ -168,25 +176,28 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 }
 
-function makeSVGClickable(svgElement: SVGElement): SVGElement {
+function makeSVGClickable(
+  rootPath: string,
+  svgElement: SVGElement
+): SVGElement {
   const nodes = svgElement.querySelectorAll("g.node");
 
-  nodes.forEach((node) => {
-    const titleElement = node.querySelector("title");
-    if (titleElement) {
-      const nodeName = titleElement.textContent || "";
+  for (const node of nodes) {
+    const textElement = node.querySelectorAll("text")[1];
+    if (textElement) {
+      const nodeName = textElement.textContent || "";
 
-      // Assuming the file URI is stored or can be derived
-      const fileUri =
-        "/Users/marco.martin/go/src/impression/cmd/impression/server/server.go";
-      // const fileUri = `file://path/to/${nodeName}.go`; // Replace with actual logic
+      const fileUri = path.join(
+        rootPath,
+        nodeName.substring(1, nodeName.length - 1)
+      );
 
       // Add attributes to store the necessary data
       node.setAttribute("data-node-name", nodeName);
       node.setAttribute("data-file-uri", fileUri);
       node.setAttribute("style", "cursor: pointer;");
     }
-  });
+  }
 
   return svgElement;
 }
