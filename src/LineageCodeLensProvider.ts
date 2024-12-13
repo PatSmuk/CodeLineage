@@ -131,7 +131,10 @@ export class LineageCodeLensProvider
   ) {
     // Notify the editor that code lenses need updating if max path segments config changes
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("codeLineage.maxPathSegments")) {
+      if (
+        event.affectsConfiguration("codeLineage.maxPathSegments") ||
+        event.affectsConfiguration("codeLineage.maxLensLength")
+      ) {
         this._onDidChangeCodeLenses.fire();
       }
     });
@@ -284,15 +287,15 @@ export class LineageCodeLensProvider
     this.graphvizMap.set(startNodeKey, graphvizContent);
 
     // Build paths to bottom from root for code lenses
-    let pathsForFunction = [] as string[];
-    const stack = [{ node: startNode, path: "" }];
+    let pathsForFunction = [] as string[][];
+    const stack = [{ node: startNode, path: [] as string[] }];
     while (stack.length > 0) {
       const { node, path } = stack.pop()!;
 
       // If node is not called from anywhere, it's the root,
       // turn it into a code lens
       if (node.incomingCalls.length === 0) {
-        pathsForFunction.push(node.name + path);
+        pathsForFunction.push([node.name, ...path]);
       }
 
       for (const incomingCall of node.incomingCalls) {
@@ -302,7 +305,7 @@ export class LineageCodeLensProvider
 
           stack.push({
             node: incomingCall.from,
-            path: `.${lineOffset}${path}`,
+            path: [lineOffset.toString(), ...path],
           });
         }
       }
@@ -310,24 +313,82 @@ export class LineageCodeLensProvider
 
     const config = vscode.workspace.getConfiguration("codeLineage");
     const maxPathSegments = config.get<number>("maxPathSegments", 0);
+    let maxLensLength = config.get<number>("maxLensLength", 80);
+    if (isNaN(maxLensLength) || maxLensLength < 1) {
+      maxLensLength = 80;
+    }
 
     if (maxPathSegments > 0) {
       pathsForFunction = pathsForFunction.map((path) => {
-        const segments = path.split(".");
-        if (segments.length <= maxPathSegments) {
+        if (path.length <= maxPathSegments + 1) {
           return path;
         }
-        return segments.slice(0, maxPathSegments).join(".");
+        return path.slice(0, maxPathSegments + 1);
       });
     }
 
+    // De-duplicate
+    pathsForFunction = [
+      ...new Set(pathsForFunction.map((p) => p.join("."))),
+    ].map((p) => p.split("."));
+
+    // Figure out the first and last call path from each root function
+    const firstAndLastForRoot = new Map<
+      /*root*/ string,
+      { firstPath: number[]; lastPath: number[] }
+    >();
+
+    for (let path of pathsForFunction) {
+      const root = path[0];
+      const offsetPath = path.slice(1).map((seg) => parseInt(seg));
+
+      const firstAndLast = firstAndLastForRoot.get(root);
+      if (!firstAndLast) {
+        firstAndLastForRoot.set(root, {
+          firstPath: offsetPath,
+          lastPath: offsetPath,
+        });
+        continue;
+      }
+
+      const { firstPath, lastPath } = firstAndLast;
+      if (comparePaths(offsetPath, firstPath) === -1) {
+        firstAndLast.firstPath = offsetPath;
+      }
+      if (comparePaths(offsetPath, lastPath) === 1) {
+        firstAndLast.lastPath = offsetPath;
+      }
+    }
+
+    // Build a piece of the lens for each root function
+    const lensPieces: string[] = [];
+    const roots = [...firstAndLastForRoot.keys()].sort();
+    for (const root of roots) {
+      if (root === "init") {
+        lensPieces.push("init");
+        continue;
+      }
+
+      const { firstPath, lastPath } = firstAndLastForRoot.get(root)!;
+      const firstPathString = firstPath.join(".");
+      const lastPathString = lastPath.join(".");
+
+      lensPieces.push(
+        `${root}:${
+          firstPathString === lastPathString
+            ? firstPathString
+            : combinePaths(firstPath, lastPath)
+        }`
+      );
+    }
+
     // Trim the amount of paths to fit in a reasonable amount of space.
-    let title = pathsForFunction.join(", ");
+    let title = lensPieces.join(", ");
     let excess = 0;
-    while (title.length > 80 && pathsForFunction.length > 1) {
-      pathsForFunction.pop();
+    while (title.length > maxLensLength && lensPieces.length > 1) {
+      lensPieces.pop();
       excess++;
-      title = pathsForFunction.join(", ");
+      title = lensPieces.join(", ");
     }
     if (excess > 0) {
       title += `, and ${excess} more`;
@@ -342,4 +403,49 @@ export class LineageCodeLensProvider
 
     return codeLens;
   }
+}
+
+/** Compare two paths segment-by-segment */
+function comparePaths(a: number[], b: number[]) {
+  const segmentsToCompare = Math.min(a.length, b.length);
+  for (let i = 0; i < segmentsToCompare; i++) {
+    if (a[i] < b[i]) {
+      return -1;
+    }
+    if (a[i] > b[i]) {
+      return 1;
+    }
+  }
+
+  // They were the same up until one ended, so the shorter path is first
+  if (a.length < b.length) {
+    return -1;
+  }
+  return 1;
+}
+
+/** Combines two paths, pulling out the common segments at the beginning
+ *
+ * `combinePaths([1, 2, 3], [4, 5, 6]) == '1.2.3..4.5.6'`
+ *
+ * `combinePaths([1, 2, 3, 4, 5], [1, 2, 3, 6, 7]) == '1.2.3.[4.5..6.7]'`
+ *
+ * `combinePaths([1, 2, 3], [1, 2, 3, 4, 5]) == '1.2.3.[..4.5]'`
+ */
+function combinePaths(first: number[], last: number[]): string {
+  const segmentsToCompare = Math.min(first.length, last.length);
+
+  for (let i = 0; i < segmentsToCompare; i++) {
+    if (first[i] !== last[i]) {
+      if (i === 0) {
+        return `${first.join(".")}..${last.join(".")}}`;
+      }
+      return (
+        first.slice(0, i).join(".") +
+        `.[${first.slice(i).join(".")}..${last.slice(i).join(".")}]`
+      );
+    }
+  }
+
+  return first.join(".") + `.[..${last.slice(first.length).join(".")}]`;
 }

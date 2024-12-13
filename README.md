@@ -20,8 +20,11 @@ Shows you how your Go functions are called, so you can get around your projects 
 This extension contributes the following settings:
 
 - **`codeLineage.maxPathSegments`: The maximum amount of segments in each lineage path, or `0` for no limit**
-    - For example: if a path is `main.3.4.11.1.2.77` and `maxPathSegments` is `3`, it will be shown as `main.3.4`
-    - Default: `0`
+  - For example: if a path is `main.3.4.11.1.2.77` and `maxPathSegments` is `3`, it will be shown as `main.3.4`
+  - Default value: `0`
+- **`codeLineage.maxLensLength`: The maximum length of each lens (the tags above your Go functions)**
+  - At least one path will always be shown, even if its length exceeds this setting
+  - Default value: `80`
 
 ## Known Issues
 

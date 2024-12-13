@@ -29,6 +29,11 @@
           "type": "number",
           "default": 0,
           "description": "The maximum amount of segments in each lineage path, or `0` for no limit"
+        },
+        "codeLineage.maxLensLength": {
+          "type": "number",
+          "default": 80,
+          "description": "The maximum length of each lens (the tags above your Go functions)"
         }
       }
     }
