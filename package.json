@@ -21,7 +21,17 @@
         "command": "codelineage.stop",
         "title": "CodeLineage: Stop Analysis"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "CodeLineage",
+      "properties": {
+        "codeLineage.maxPathSegments": {
+          "type": "number",
+          "default": 0,
+          "description": "The maximum amount of segments in each lineage path, or `0` for no limit"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",

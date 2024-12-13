@@ -1,4 +1,4 @@
-import { relative } from "path";
+import { relative } from "node:path";
 import * as vscode from "vscode";
 import {
   CallHierarchyIncomingCall,
@@ -24,11 +24,11 @@ interface LineageCodeLens extends vscode.CodeLens {
   startNode: RecursiveCallHierarchyItem;
 }
 
-const FUNCTION_NAME_PATTERN =
+const GO_FUNCTION_NAME_PATTERN =
   /\s*func\s*(?:\(\s*(?:(?:[A-Za-z]|\p{Nd})+)?\s*\*?\s*(?:(?:[A-Za-z]|\p{Nd})+)\s*\))?\s*((?:[A-Za-z]|\p{Nd})+)\s*\(/du;
 
 // Function to generate Graphviz DOT representation
-function generateGraphvizDOT(
+function generateGraphvizDot(
   root: RecursiveCallHierarchyItem,
   rootPath: string
 ): string {
@@ -128,7 +128,14 @@ export class LineageCodeLensProvider
     private getLspClient: () => LspClient | null,
     private graphvizMap: Map<string, string>,
     private rootPath: string
-  ) {}
+  ) {
+    // Notify the editor that code lenses need updating if max path segments config changes
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("codeLineage.maxPathSegments")) {
+        this._onDidChangeCodeLenses.fire();
+      }
+    });
+  }
 
   private _onDidChangeCodeLenses: vscode.EventEmitter<void> =
     new vscode.EventEmitter<void>();
@@ -167,7 +174,7 @@ export class LineageCodeLensProvider
 
       if (kind === SymbolKind.Function || kind === SymbolKind.Method) {
         const startLine = document.lineAt(location.range.start.line);
-        const match = startLine.text.match(FUNCTION_NAME_PATTERN);
+        const match = startLine.text.match(GO_FUNCTION_NAME_PATTERN);
         if (!match) {
           continue;
         }
@@ -273,7 +280,7 @@ export class LineageCodeLensProvider
     }
 
     // Generate Graphviz content for the function and store it in the map
-    const graphvizContent = generateGraphvizDOT(startNode, this.rootPath);
+    const graphvizContent = generateGraphvizDot(startNode, this.rootPath);
     this.graphvizMap.set(startNodeKey, graphvizContent);
 
     // Build paths to bottom from root for code lenses
@@ -301,14 +308,18 @@ export class LineageCodeLensProvider
       }
     }
 
-    // Trim each path to max 5 segments.
-    // pathsForFunction = pathsForFunction.map((path) => {
-    //   const segments = path.split(".");
-    //   if (segments.length <= 5) {
-    //     return path;
-    //   }
-    //   return segments.slice(0, 5).join(".") + "...";
-    // });
+    const config = vscode.workspace.getConfiguration("codeLineage");
+    const maxPathSegments = config.get<number>("maxPathSegments", 0);
+
+    if (maxPathSegments > 0) {
+      pathsForFunction = pathsForFunction.map((path) => {
+        const segments = path.split(".");
+        if (segments.length <= maxPathSegments) {
+          return path;
+        }
+        return segments.slice(0, maxPathSegments).join(".");
+      });
+    }
 
     // Trim the amount of paths to fit in a reasonable amount of space.
     let title = pathsForFunction.join(", ");
