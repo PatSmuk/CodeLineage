@@ -27,39 +27,44 @@ interface LineageCodeLens extends vscode.CodeLens {
 const GO_FUNCTION_NAME_PATTERN =
   /\s*func\s*(?:\(\s*(?:(?:[A-Za-z]|\p{Nd})+)?\s*\*?\s*(?:(?:[A-Za-z]|\p{Nd})+)\s*\))?\s*((?:[A-Za-z]|\p{Nd})+)\s*\(/du;
 
+const DEFAULT_STYLES = `
+  // Graph-level styling
+  graph [
+    rankdir=TB, // Top-to-bottom layout
+    fontname="Courier",
+    fontsize=12
+  ];
+
+  // Default node styling
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Courier",
+    fontsize=10,
+  ];
+
+  // Default edge styling
+  edge [
+    arrowhead=vee,
+    arrowsize=0.8,
+    penwidth=1.5,
+  ];
+`;
+
 // Function to generate Graphviz DOT representation
 function generateGraphvizDot(
-  root: RecursiveCallHierarchyItem,
+  startNode: RecursiveCallHierarchyItem,
   rootPath: string
 ): string {
-  const defaultStyles = `
-      // Graph-level styling
-      graph [
-        rankdir=TB, // Top-to-bottom layout
-        fontname="Courier",
-        fontsize=12
-      ];
-
-      // Default node styling
-      node [
-        shape=box,
-        style="rounded,filled",
-        fontname="Courier",
-        fontsize=10,
-      ];
-
-      // Default edge styling
-      edge [
-        arrowhead=vee,
-        arrowsize=0.8,
-        penwidth=1.5,
-      ];
-  `;
+  const relativePath = (uri: string) =>
+    relative(rootPath, decodeURIComponent(new URL(uri).pathname));
 
   const edges = new Set<string>();
   const nodes = new Set<string>();
+  const rootNodes = new Set<string>();
   const nodesById = new Map<String, CallHierarchyItem>();
   const callSiteLines = new Map<string, Set<number>>();
+
   const addCallSiteLines = (nodeId: string, newCallSites: number[]) => {
     const existing = callSiteLines.get(nodeId);
     if (!existing) {
@@ -71,34 +76,41 @@ function generateGraphvizDot(
     }
   };
 
-  const relativePath = (uri: string) =>
-    relative(rootPath, decodeURIComponent(new URL(uri).pathname));
-
   const traverse = (node: RecursiveCallHierarchyItem) => {
     const nodeId = `${node.name}_${relativePath(node.uri)}`;
+
+    // Check if its a root node
+    if (node.incomingCalls.length === 0) {
+      rootNodes.add(nodeId);
+    }
+
     for (const incomingCall of node.incomingCalls) {
       const childNodeId = `${incomingCall.from.name}_${relativePath(
         incomingCall.from.uri
       )}`;
+
       nodesById.set(childNodeId, incomingCall.from);
+
       addCallSiteLines(
         childNodeId,
         incomingCall.fromRanges.map((r) => r.start.line)
       );
+
       const edge = `"${childNodeId}" -> "${nodeId}";`;
       if (!edges.has(edge)) {
         edges.add(edge);
       }
+
       traverse(incomingCall.from); // Recurse into children
     }
   };
 
-  nodesById.set(`${root.name}_${relativePath(root.uri)}`, root);
+  nodesById.set(`${startNode.name}_${relativePath(startNode.uri)}`, startNode);
   callSiteLines.set(
-    `${root.name}_${relativePath(root.uri)}`,
-    new Set([root.range.start.line])
+    `${startNode.name}_${relativePath(startNode.uri)}`,
+    new Set([startNode.range.start.line])
   );
-  traverse(root);
+  traverse(startNode);
 
   for (const [nodeId, lines] of callSiteLines.entries()) {
     const node = nodesById.get(nodeId)!;
@@ -107,12 +119,17 @@ function generateGraphvizDot(
     let label = `${node.name}\\n${relativePath(node.uri)}${
       linesArray.length > 0 ? ":" + linesArray : ""
     }`;
-    nodes.add(`"${nodeId}" [label="${label}"];`);
+
+    if (rootNodes.has(nodeId)) {
+      nodes.add(`"${nodeId}" [label="${label}", class="root"];`);
+    } else {
+      nodes.add(`"${nodeId}" [label="${label}"];`);
+    }
   }
 
-  return `digraph ${root.name}CallHierarchy {
+  return `digraph ${startNode.name} {
     rankdir=TB; // Top-to-bottom layout
-    ${defaultStyles}
+    ${DEFAULT_STYLES}
     ${Array.from(nodes).join("\n  ")}
     ${Array.from(edges).join("\n  ")}
   }`;

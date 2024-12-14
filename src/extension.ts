@@ -33,14 +33,8 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Connect code lens provider with start and stop commands
-  let disposable = vscode.commands.registerCommand("codelineage.start", () => {
-    analysisEnabled = true;
-    codeLensProvider.notify();
-  });
-  context.subscriptions.push(disposable);
-
-  disposable = vscode.commands.registerCommand("codelineage.stop", () => {
-    analysisEnabled = false;
+  let disposable = vscode.commands.registerCommand("codelineage.toggle", () => {
+    analysisEnabled = !analysisEnabled;
     codeLensProvider.notify();
   });
   context.subscriptions.push(disposable);
